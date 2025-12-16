@@ -1,0 +1,14 @@
+__pycache__/
+.env
+venv/
+.ipynb_checkpoints/
+Output/
+Release/
+Scripts/
+# Documents & presentations
+*.pdf
+*.ppt
+*.pptx
+*.png
+*.jpg
+*.jpeg

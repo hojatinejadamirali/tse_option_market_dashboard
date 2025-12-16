@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TSE Options Chain Analyzer</title>
+  <meta name="description" content="Real-time Options Chain with IV, Greeks, HV, and AI-Powered Insights">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <!-- Inter Font -->
+  <link href="https://rsms.me/inter/inter.css" rel="stylesheet">
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            primary: '#6366f1',
+            call: '#10b981',
+            put: '#ef4444',
+            success: '#10b981',
+            danger: '#ef4444',
+            warning: '#f59e0b',
+            ai: '#8b5cf6',
+            neutral: '#6b7280'
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'fade-in': 'fadeIn 0.5s ease-in-out'
+          },
+          keyframes: {
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Chart.js + Plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --muted: #64748b;
+    }
+    .dark {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      transition: background 0.3s, color 0.3s;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+    .table-container {
+      max-height: 70vh;
+      overflow-y: auto;
+      overflow-x: auto;
+    }
+    .table-fixed {
+      table-layout: fixed;
+    }
+
+    /* Column widths — now cleaner and responsive */
+    .underlying { width: 140px; } .ticker { width: 100px; } .type { width: 65px; }
+    .strike { width: 90px; } .days { width: 70px; } 
+    .price { width: 85px; } .last { width: 85px; } .theo { width: 85px; } .diff { width: 75px; }
+    .iv { width: 80px; } .delta { width: 75px; } .greek { width: 75px; } .hv { width: 75px; }
+    .vol { width: 80px; } .oi { width: 80px; } .uprice { width: 95px; } .action { width: 85px; }
+
+    @media (max-width: 1024px) {
+      .lg-hidden { display: none; }
+    }
+
+    /* Scrollbar */
+    .scrollbar::-webkit-scrollbar { width: 8px; }
+    .scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .dark .scrollbar::-webkit-scrollbar-track { background: #1e293b; }
+    .dark .scrollbar::-webkit-scrollbar-thumb { background: #475569; }
+
+    /* Row hover */
+    .row-clickable {
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .row-clickable:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+    }
+    .dark .row-clickable:hover {
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+    }
+
+    /* Unified Filter Box */
+    .filters-box {
+      @apply card p-4 rounded-xl shadow-sm border;
+      background: var(--card);
+      border-color: var(--border);
+    }
+    .filter-grid {
+      @apply grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3;
+    }
+    .filter-group {
+      @apply flex flex-col gap-1;
+    }
+    .filter-label {
+      @apply text-xs font-medium text-muted;
+    }
+    .filter-input, .filter-select {
+      @apply w-full px-3 py-2 text-sm rounded-md border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/30;
+      border-color: #e2e8f0;
+      background: #ffffff;
+      color: #1e293b;
+    }
+    .dark .filter-input, .dark .filter-select {
+      border-color: #334155;
+      background: #1e293b;
+      color: #f1f5f9;
+    }
+    .filter-input:focus, .filter-select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+    }
+    .dark .filter-input:focus, .dark .filter-select:focus {
+      border-color: #8b5cf6;
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3);
+    }
+    .filter-select {
+      @apply appearance-none pr-8;
+    }
+    .filter-select-arrow {
+      @apply absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-500;
+    }
+
+    /* Badges & UI Elements */
+    .badge {
+      @apply px-2 py-0.5 rounded text-xs font-medium;
+    }
+    .badge-call {
+      @apply bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300;
+    }
+    .badge-put {
+      @apply bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300;
+    }
+    .badge-high-iv {
+      @apply bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300;
+    }
+    .pulse-dot {
+      @apply w-2 h-2 rounded-full bg-primary animate-pulse-slow;
+    }
+    .skeleton {
+      @apply bg-gray-200 dark:bg-gray-700 rounded animate-pulse;
+    }
+    .gradient-bg {
+      background: linear-gradient(to right, #6366f1, #8b5cf6);
+    }
+    .iv-heat {
+      transition: background-color 0.3s;
+    }
+    .iv-low { background-color: rgba(16,185,129,0.1); }
+    .iv-med { background-color: rgba(245,158,11,0.1); }
+    .iv-high { background-color: rgba(239,68,68,0.1); }
+    .dark .iv-low { background-color: rgba(16,185,129,0.2); }
+    .dark .iv-med { background-color: rgba(245,158,11,0.2); }
+    .dark .iv-high { background-color: rgba(239,68,68,0.25); }
+    .ai-highlight {
+      @apply bg-ai/10 dark:bg-ai/20 p-3 rounded-lg border-l-4 border-ai font-medium text-sm shadow-sm;
+    }
+  </style>
+</head>
+<body class="min-h-screen transition-colors">
+  <div class="container mx-auto max-w-full px-4 py-6">
+    <!-- Header -->
+    <header class="text-center mb-8 animate-fade-in">
+      <h1 class="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-ai">
+        TSE Options Chain Analyzer
+      </h1>
+      <p class="mt-2 text-sm text-muted">Real-time IV, Greeks, HV & AI-Powered Insights</p>
+    </header>
+
+    <!-- Status + Filters -->
+    <div class="filters-box mb-6">
+      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-4">
+        <div id="status" class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 bg-primary/10 text-primary">
+          <div class="pulse-dot"></div>
+          <span class="loading-dots">Loading status</span>
+        </div>
+        <div class="flex gap-2">
+          <button id="refresh-btn" class="px-4 py-2 bg-primary text-white rounded-md text-sm font-medium hover:bg-primary/90 transition shadow-sm">
+            Refresh
+          </button>
+          <button id="dark-mode-toggle" class="p-2 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition shadow-sm">
+            <svg id="sun-icon" class="w-5 h-5 hidden dark:block" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707z"/></svg>
+            <svg id="moon-icon" class="w-5 h-5 block dark:hidden" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Filters Grid (Begin/End removed!) -->
+      <div class="filter-grid">
+        <div class="filter-group">
+          <label class="filter-label">Expiry</label>
+          <div class="relative">
+            <select id="expiry-filter" class="filter-select">
+              <option value="">All Expiries</option>
+            </select>
+            <svg class="filter-select-arrow w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Underlying/Ticker</label>
+          <input type="text" id="filter-underlying" placeholder="Search..." class="filter-input">
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">IV %</label>
+          <input type="text" id="filter-iv" placeholder="e.g. 30-60" class="filter-input">
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Delta</label>
+          <input type="text" id="filter-delta" placeholder="e.g. 0.3-0.7" class="filter-input">
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">OI</label>
+          <input type="text" id="filter-oi" placeholder="e.g. 1000" class="filter-input">
+        </div>
+
+        <!-- ❌ Begin & End removed as requested -->
+
+        <div class="filter-group col-span-2 sm:col-span-1 lg:col-span-1">
+          <button id="ai-insights-btn" class="w-full h-full px-4 py-2 bg-ai text-white rounded-md text-sm font-medium hover:bg-ai/90 transition flex items-center justify-center gap-1.5 shadow-sm">
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM9 14v-2h2v2H9zm0-4V6h2v4H9z"/></svg>
+            AI Insights
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Panel -->
+    <div id="ai-panel" class="card p-5 rounded-xl mb-6 hidden shadow-lg">
+      <h3 class="text-lg font-bold text-ai mb-4">AI-Powered Insights (Filtered View)</h3>
+      <div id="ai-content" class="space-y-3 text-sm">
+        <p class="text-muted">Analyzing filtered data...</p>
+      </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="card p-4 rounded-xl text-center shadow-md hover:shadow-lg transition">
+        <p class="text-2xl font-bold text-primary" id="total-contracts">-</p>
+        <p class="text-xs text-muted">Total Contracts</p>
+      </div>
+      <div class="card p-4 rounded-xl text-center shadow-md hover:shadow-lg transition">
+        <p class="text-2xl font-bold text-call" id="avg-iv">-</p>
+        <p class="text-xs text-muted">Avg IV</p>
+      </div>
+      <div class="card p-4 rounded-xl text-center shadow-md hover:shadow-lg transition">
+        <p class="text-2xl font-bold text-warning" id="high-iv-count">-</p>
+        <p class="text-xs text-muted">High IV (>50%)</p>
+      </div>
+      <div class="card p-4 rounded-xl text-center shadow-md hover:shadow-lg transition">
+        <p class="text-2xl font-bold text-ai" id="ai-score">-</p>
+        <p class="text-xs text-muted">AI Opportunity Score</p>
+      </div>
+    </div>
+
+    <!-- Chain Table -->
+    <div class="card rounded-xl shadow-lg overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center gradient-bg text-white">
+        <h2 class="text-xl font-bold">Options Chain</h2>
+        <div class="text-sm">
+          <span id="row-count">0</span> contracts shown
+        </div>
+      </div>
+      <div class="table-container scrollbar overflow-x-auto">
+        <table id="chain-table" class="min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700 text-xs">
+          <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
+            <tr>
+              <th class="underlying px-2 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">Underlying</th>
+              <th class="ticker px-2 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">Ticker</th>
+              <th class="type px-2 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">Type</th>
+              <th class="strike px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">Strike</th>
+              <th class="days px-2 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">Days</th>
+              <!-- ❌ Begin & End columns REMOVED here -->
+              <th class="price px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">Price</th>
+              <th class="last px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">Last</th>
+              <th class="theo px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">Theo</th>
+              <th class="diff px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">Diff %</th>
+              <th class="iv px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">IV (%)</th>
+              <th class="delta px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">Delta</th>
+              <th class="greek px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">Gamma</th>
+              <th class="greek px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">Theta/d</th>
+              <th class="greek px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">V/1%</th>
+              <th class="greek px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">Rho/1%</th>
+              <th class="hv px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">HV30</th>
+              <th class="hv px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">HV90</th>
+              <th class="hv px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">HV252</th>
+              <th class="vol px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">Vol</th>
+              <th class="oi px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">OI</th>
+              <th class="uprice px-2 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase lg-hidden">U-Price</th>
+              <th class="action px-2 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">Chart</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200 dark:divide-gray-700 text-xs"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- IV Chart Modal -->
+    <div id="chart-modal" class="fixed inset-0 bg-black bg-opacity-70 z-50 hidden flex items-center justify-center p-4">
+      <div class="card rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center gradient-bg text-white">
+          <h3 id="chart-title" class="text-lg font-bold">IV History</h3>
+          <button onclick="closeChart()" class="text-white hover:text-gray-300 text-2xl font-bold">&times;</button>
+        </div>
+        <div class="flex-1 p-6 overflow-hidden">
+          <canvas id="iv-chart" class="w-full h-full"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // === GLOBALS ===
+    let ivChart = null;
+    let fullChainData = [];
+    let filteredData = [];
+    let currentFilters = {};
+    const FILTER_KEY = 'tseOptionsChainFilters';
+
+    // === HELPERS ===
+    const fmt = (v, dec = 0) => v == null ? '-' : Number(v).toFixed(dec);
+    const pct = (v) => v == null ? '-' : (v * 100).toFixed(1) + '%';
+    const getTypeClass = (type) => type === 'CALL' ? 'badge-call' : 'badge-put';
+    const getTypeIcon = (type) => type === 'CALL' ? '<svg class="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M5 12h10l-5-5-5 5z"/></svg>' : '<svg class="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M5 8h10l-5 5-5-5z"/></svg>';
+    const getIVHeatClass = (iv) => {
+      if (iv < 0.3) return 'iv-low';
+      if (iv < 0.5) return 'iv-med';
+      return 'iv-high';
+    };
+
+    // === DARK MODE ===
+    function toggleDarkMode() {
+      document.body.classList.toggle('dark');
+      const isDark = document.body.classList.contains('dark');
+      localStorage.setItem('darkMode', isDark);
+      document.getElementById('sun-icon').classList.toggle('hidden', !isDark);
+      document.getElementById('moon-icon').classList.toggle('hidden', isDark);
+    }
+
+    // === AI INSIGHTS (no changes needed) ===
+    function generateAIInsights(data) {
+      if (!data || data.length === 0) {
+        document.getElementById('ai-content').innerHTML = '<p class="text-muted">No data to analyze.</p>';
+        document.getElementById('ai-score').textContent = '-';
+        return;
+      }
+      const highIV = data.filter(r => r.iv > 0.5).length;
+      const total = data.length;
+      const putCallRatio = data.filter(r => r.type === 'PUT').length / Math.max(data.filter(r => r.type === 'CALL').length, 1);
+      const avgIV = data.reduce((a, r) => a + r.iv, 0) / total;
+      const skew = data.filter(r => r.type === 'PUT' && r.delta < -0.3).length > data.filter(r => r.type === 'CALL' && r.delta > 0.7).length ? 'Put Skew' : 'Call Skew';
+     
+      const maxOI = Math.max(...data.map(r => r.open_interest || 0));
+      const hotContract = data.find(r => r.open_interest === maxOI) || {};
+      const risky = data.filter(r => r.iv > 0.6 && r.open_interest > 500);
+      const riskyContracts = risky.slice(0, 3).map(r => `<span class="font-mono">${r.ticker}</span> (IV: ${pct(r.iv)}, OI: ${fmt(r.open_interest,0)})`).join(' | ');
+      let strategy = '';
+      if (putCallRatio > 1.5 && avgIV > 0.4) strategy = 'Conservative: Sell Call Spread';
+      else if (putCallRatio < 0.6 && avgIV > 0.5) strategy = 'Aggressive: Buy Call';
+      else if (highIV / total > 0.4) strategy = 'Volatility Play: Iron Condor';
+      else strategy = 'Balanced Market — Moderate Positioning';
+      
+      const insights = [
+        `<div class="ai-highlight">High IV Contracts: <strong>${highIV}</strong> of ${total} (${(highIV/total*100).toFixed(1)}%)</div>`,
+        `<div class="ai-highlight">Put/Call Ratio: <strong>${putCallRatio.toFixed(2)}</strong> → ${putCallRatio > 1.2 ? 'Bearish' : putCallRatio < 0.8 ? 'Bullish' : 'Neutral'}</div>`,
+        `<div class="ai-highlight">Volatility Skew: <strong>${skew}</strong></div>`,
+        `<div class="ai-highlight">Average IV: <strong>${pct(avgIV)}</strong></div>`,
+        hotContract.ticker ? `<div class="ai-highlight">Hottest Contract: <strong>${hotContract.ticker}</strong> with OI ${fmt(maxOI, 0)}</div>` : '',
+        risky.length ? `<div class="ai-highlight text-warning">High-Risk Contracts: ${riskyContracts}</div>` : '',
+        `<div class="ai-highlight text-ai font-bold">AI Strategy Suggestion: ${strategy}</div>`
+      ].filter(Boolean);
+      document.getElementById('ai-content').innerHTML = insights.join('');
+      document.getElementById('ai-score').textContent = Math.min(99, Math.round((highIV/total)*80 + Math.abs(putCallRatio-1)*15 + (risky.length * 5)));
+    }
+
+    // === FILTERS (Begin/End removed from logic) ===
+    function loadFilters() {
+      const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || '{}');
+      currentFilters = saved;
+      ['expiry-filter', 'filter-underlying', 'filter-iv', 'filter-delta', 'filter-oi'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && saved[id]) el.value = saved[id];
+      });
+    }
+
+    function saveFilters() {
+      const filters = {};
+      ['expiry-filter', 'filter-underlying', 'filter-iv', 'filter-delta', 'filter-oi'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) filters[id] = el.value.trim();
+      });
+      currentFilters = filters;
+      localStorage.setItem(FILTER_KEY, JSON.stringify(filters));
+    }
+
+    // === STATUS ===
+    function updateStatus() {
+      fetch('/api/status')
+        .then(r => r.json())
+        .then(data => {
+          const el = document.getElementById('status');
+          const next = data.next_update_in_seconds;
+          const color = next <= 30 ? 'text-red-600' : next <= 60 ? 'text-orange-600' : 'text-primary';
+          el.innerHTML = `<div class="pulse-dot"></div> Status: <strong>${data.status}</strong> | Last: <strong>${data.last_update}</strong> | Next: <strong class="${color}">${next}s</strong>`;
+        })
+        .catch(() => {
+          document.getElementById('status').innerHTML = '<span class="text-red-600 font-bold">Server Offline</span>';
+        });
+    }
+
+    // === LOAD CHAIN ===
+    function loadChain(force = false) {
+      const tbody = document.querySelector('#chain-table tbody');
+      tbody.innerHTML = Array.from({length: 10}, () => '<tr>' + Array.from({length: 22}, () => '<td class="px-2 py-3"><div class="skeleton h-4 w-full"></div></td>').join('') + '</tr>').join('');
+      if (force) fetch('/api/refresh');
+      fetch('/api/chain')
+        .then(r => r.json())
+        .then(data => {
+          if (!data || !Array.isArray(data)) throw new Error("Invalid data");
+          fullChainData = data;
+          updateFiltersDropdowns();
+          applyCurrentFiltersAndRender();
+          updateSummaryCards();
+        })
+        .catch(() => {
+          tbody.innerHTML = '<tr><td colspan="22" class="text-center py-8 text-red-600">Failed to load data</td></tr>';
+        });
+    }
+
+    // === SUMMARY CARDS ===
+    function updateSummaryCards() {
+      const total = filteredData.length;
+      const avgIV = total ? filteredData.reduce((a, r) => a + (r.iv || 0), 0) / total : 0;
+      const highIV = filteredData.filter(r => r.iv > 0.5).length;
+      document.getElementById('total-contracts').textContent = total.toLocaleString();
+      document.getElementById('avg-iv').textContent = pct(avgIV);
+      document.getElementById('high-iv-count').textContent = highIV;
+    }
+
+    // === DROPDOWNS ===
+    function updateFiltersDropdowns() {
+      const expiries = new Set(fullChainData.map(r => r.days_to_expiry).filter(Boolean));
+      const select = document.getElementById('expiry-filter');
+      const saved = currentFilters['expiry-filter'];
+      select.innerHTML = '<option value="">All Expiries</option>';
+      [...expiries].sort((a, b) => a - b).forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d; opt.textContent = `${d} day${d > 1 ? 's' : ''}`;
+        if (String(d) === String(saved)) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    // === APPLY FILTERS (Begin/End logic REMOVED) ===
+    function applyCurrentFiltersAndRender() {
+      let filtered = [...fullChainData];
+      if (currentFilters['expiry-filter']) filtered = filtered.filter(r => r.days_to_expiry == currentFilters['expiry-filter']);
+      if (currentFilters['filter-underlying']) {
+        const term = currentFilters['filter-underlying'].toLowerCase();
+        filtered = filtered.filter(r => (r.underlying_name || r.ticker || '').toLowerCase().includes(term));
+      }
+      if (currentFilters['filter-iv']) {
+        const [min, max] = currentFilters['filter-iv'].split('-').map(parseFloat);
+        filtered = filtered.filter(r => {
+          const iv = r.iv * 100;
+          return (!min || iv >= min) && (!max || iv <= max);
+        });
+      }
+      if (currentFilters['filter-delta']) {
+        const [min, max] = currentFilters['filter-delta'].split('-').map(parseFloat);
+        filtered = filtered.filter(r => (!min || r.delta >= min) && (!max || r.delta <= max));
+      }
+      if (currentFilters['filter-oi']) {
+        const [min, max] = currentFilters['filter-oi'].split('-').map(parseFloat);
+        filtered = filtered.filter(r => (!min || r.open_interest >= min) && (!max || r.open_interest <= max));
+      }
+      // ❌ Begin & End filters REMOVED
+
+      filteredData = filtered;
+      const calls = filtered.filter(r => r.type === 'CALL').sort((a, b) => b.strike - a.strike);
+      const puts = filtered.filter(r => r.type === 'PUT').sort((a, b) => a.strike - b.strike);
+      renderTable([...calls, ...puts]);
+      document.getElementById('row-count').textContent = filtered.length;
+      generateAIInsights(filteredData);
+      updateSummaryCards();
+    }
+
+    // === RENDER TABLE (22 columns now) ===
+    function renderTable(data) {
+      const tbody = document.querySelector('#chain-table tbody');
+      tbody.innerHTML = '';
+      if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="22" class="text-center py-8 text-muted">No contracts match filters</td></tr>';
+        return;
+      }
+      data.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.className = `row-clickable ${row.type === 'CALL' ? 'bg-call/5 hover:bg-call/10 dark:bg-call/10 dark:hover:bg-call/20' : 'bg-put/5 hover:bg-put/10 dark:bg-put/10 dark:hover:bg-put/20'}`;
+        if (row.contract_isin) {
+          tr.onclick = e => !e.target.closest('button') && showIVChart(row.contract_isin, row.ticker || row.underlying_name);
+        }
+        const ivPct = row.iv * 100;
+        const ivBadge = ivPct > 50 ? '<span class="badge badge-high-iv">High</span>' : '';
+        const ivHeat = getIVHeatClass(row.iv);
+        tr.innerHTML = `
+          <td class="underlying font-medium truncate" title="${row.underlying_name}">${row.underlying_name || '-'}</td>
+          <td class="ticker font-mono truncate" title="${row.ticker}">${row.ticker || '-'}</td>
+          <td class="type"><span class="badge ${getTypeClass(row.type)}">${getTypeIcon(row.type)}${row.type}</span></td>
+          <td class="strike text-right font-medium">${fmt(row.strike, 0)}</td>
+          <td class="days text-center"><span class="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">${row.days_to_expiry ?? '-'}</span></td>
+          <!-- ❌ Begin & End removed -->
+          <td class="price text-right">${fmt(row.market_price, 0)}</td>
+          <td class="last text-right lg-hidden">${fmt(row.last_price, 0)}</td>
+          <td class="theo text-right lg-hidden">${fmt(row.theoretical_price, 2)}</td>
+          <td class="diff text-right lg-hidden">${row.price_diff_pct ? pct(row.price_diff_pct / 100) : '-'}</td>
+          <td class="iv text-right font-medium ${ivPct > 50 ? 'text-red-600' : 'text-green-600'} iv-heat ${ivHeat}">${pct(row.iv)} ${ivBadge}</td>
+          <td class="delta text-right">${fmt(row.delta, 3)}</td>
+          <td class="greek text-right lg-hidden">${fmt(row.gamma, 6)}</td>
+          <td class="greek text-right lg-hidden">${fmt(row.theta_daily, 2)}</td>
+          <td class="greek text-right lg-hidden">${fmt(row.vega_per_1pct, 2)}</td>
+          <td class="greek text-right lg-hidden">${fmt(row.rho_per_1pct, 2)}</td>
+          <td class="hv text-right lg-hidden">${pct(row.hv_30d)}</td>
+          <td class="hv text-right lg-hidden">${pct(row.hv_90d)}</td>
+          <td class="hv text-right lg-hidden">${pct(row.hv_252d)}</td>
+          <td class="vol text-right lg-hidden">${fmt(row.trade_count || row.volume, 0)}</td>
+          <td class="oi text-right font-medium">${fmt(row.open_interest, 0)}</td>
+          <td class="uprice text-right lg-hidden">${fmt(row.underlying_price, 2)}</td>
+          <td class="action text-center">
+            <button onclick="showIVChart('${row.contract_isin}', '${(row.ticker || row.underlying_name).replace(/'/g, "\\'")}')"
+                    class="text-primary hover:text-primary/80 text-xs font-medium">Chart</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // === CHART ===
+    function showIVChart(isin, ticker) {
+      fetch(`/api/iv/${isin}`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data || data.length === 0) return alert('No IV history.');
+          const modal = document.getElementById('chart-modal');
+          modal.classList.remove('hidden');
+          document.getElementById('chart-title').textContent = `IV History — ${ticker}`;
+          const ctx = document.getElementById('iv-chart').getContext('2d');
+          const labels = data.map(d => d.date);
+          const ivs = data.map(d => (d.implied_volatility * 100).toFixed(2));
+          if (ivChart) ivChart.destroy();
+          ivChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets: [{ label: 'IV (%)', data: ivs, borderColor: '#6366f1', backgroundColor: 'rgba(99, 102, 241, 0.1)', fill: true, tension: 0.3, pointRadius: 4, pointHoverRadius: 7, borderWidth: 2.5 }] },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
+              scales: { 
+                y: { title: { display: true, text: 'IV (%)' }, ticks: { callback: v => v + '%' } }, 
+                x: { title: { display: true, text: 'Date' } } 
+              }
+            }
+          });
+        })
+        .catch(() => alert('Failed to load IV history.'));
+    }
+
+    function closeChart() {
+      document.getElementById('chart-modal').classList.add('hidden');
+      if (ivChart) { ivChart.destroy(); ivChart = null; }
+    }
+
+    // === EVENTS ===
+    document.getElementById('expiry-filter').addEventListener('change', () => { saveFilters(); applyCurrentFiltersAndRender(); });
+    ['filter-underlying', 'filter-iv', 'filter-delta', 'filter-oi'].forEach(id => {
+      const el = document.getElementById(id);
+      let timeout;
+      el.addEventListener('input', () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => { saveFilters(); applyCurrentFiltersAndRender(); }, 400);
+      });
+    });
+    document.getElementById('refresh-btn').addEventListener('click', () => loadChain(true));
+    document.getElementById('dark-mode-toggle').addEventListener('click', toggleDarkMode);
+    document.getElementById('ai-insights-btn').addEventListener('click', () => {
+      document.getElementById('ai-panel').classList.toggle('hidden');
+      if (!document.getElementById('ai-panel').classList.contains('hidden')) {
+        generateAIInsights(filteredData);
+      }
+    });
+
+    // === AUTO REFRESH ===
+    setInterval(() => { updateStatus(); loadChain(); }, 15000);
+
+    // === INIT ===
+    window.addEventListener('load', () => {
+      if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark');
+      toggleDarkMode();
+      loadFilters();
+      updateStatus();
+      loadChain();
+    });
+  </script>
+</body>
+</html>
